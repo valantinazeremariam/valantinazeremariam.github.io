@@ -1,0 +1,48 @@
+---
+title: "Variable Codebook: Students’ Adaptability Level in Online Education"
+author: "Valantina Zeremariam and Sophia Maron Schaeffer" 
+format: gfm
+execute: 
+  error: true
+  message: false
+  warning: false
+  eval: true
+---
+### Data
+
+The data set we used is from a research study conducted by the Daffodil International University. They collected this data via a survey they released from December 10, 2020, until February 5, 2021. Student information was gathered from various educational levels including universities, schools, and colleges. Each student who was surveyed represents one observation; a total of 1,205 observations are included in this dataset and none were omitted from the final dataset. We believe this is because the dataset may have already been used for other research studies done by the university, and thus it was cleaned before it was released publicly.
+
+The original dataset had 14 variables - sex, age, education level, institution type, IT student, location, load shedding, financial condition, internet type, network type, class duration, self-LMS, device, and adaptivity level.
+
+### Codebook
+
+```{r}
+#| echo: false
+#| output: asis
+library(tidyverse)
+library(here)
+
+# mpg is built-in ggplot2 data set
+
+students_adaptability_level_online_education <- read_csv(here("data/original dataset/students_adaptability_level_online_education.csv"), show_col_types = FALSE)
+
+codebook <- tibble(
+  Variables = paste0("`", names(students_adaptability_level_online_education), "`"), # makes it code script when rendered
+  Description = c("Gender category the particpants identify as (Male or Female)",
+                  "The age group category the particpants falls into",
+                  "The education inutition level fo where they attend school",
+                  "Wheter the student attend a government funded insituition or not",
+                  "Whether the students' educational focus is IT",
+                  "Is the students' location in town",
+                  "Level of load-shedding",
+                  "Financial condition of family",
+                  "Wheter they use mobile data or wifi fo their online classes",
+                  "Network connectivity type",
+                  "Daily class duration", 
+                  "Institution’s own Learning Management System availability", 
+                  "Device used mostly in class", 
+                  "Adaptivity Level of the student to online education"),
+  Type = map_chr(students_adaptability_level_online_education, typeof))
+
+knitr::kable(codebook)
+```

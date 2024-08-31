@@ -1,0 +1,654 @@
+---
+title: "Using Machine Learning to Predict Students’ Adaptability Level in Online Education"
+subtitle: "Final Report: Group 2"
+author: "Sophia Maron Schaeffer & Valantina Zeremariam"
+date: "May 7, 2024"
+format:
+  html: 
+    theme: "pulse"
+    self-contained: true
+    embed-resources: true
+fig-asp: 0.618
+fig-width: 10
+editor: visual
+echo: false
+---
+
+```{r load-r-packages}
+#| error: false
+#| message: false
+# load in necessary R packages 
+library(tidyverse)
+library(reticulate)
+library(openintro)
+library(here)
+library(vtable)
+library(janitor)
+library(ggplot2)
+library(gridExtra)
+library(grid)
+```
+
+```{python load-python-packages}
+#| message: false
+# data manipulation packages
+import pandas as pd
+import numpy as np
+
+
+# for plotting
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+
+# for making pipelines and fitting models
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.pipeline import Pipeline
+from sklearn.compose import make_column_transformer
+from sklearn.model_selection import train_test_split
+from sklearn.model_selection import cross_validate
+from sklearn.model_selection import KFold, StratifiedShuffleSplit
+from sklearn.kernel_approximation import Nystroem
+from sklearn.linear_model import SGDClassifier
+from sklearn.svm import SVC
+from sklearn.metrics import RocCurveDisplay
+from sklearn.metrics import roc_curve, auc
+from sklearn.metrics import mean_squared_error
+from sklearn.linear_model import ElasticNetCV
+from sklearn.model_selection import GridSearchCV, ShuffleSplit
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.datasets import make_classification 
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import roc_auc_score
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.compose import ColumnTransformer
+```
+
+## Introduction and Data
+
+Before the COVID-19 pandemic, Bangladesh had significantly improved in providing universal primary education and gender parity in equal access to education. However, a challenge faced was the quality of education, especially for marginalized communities. It did not help that the pandemic exacerbated challenges within the Bangladeshi education system. During the pandemic, educational institutions continued educational activities online. Bangladesh took a longer time to ensure that online education would be suitable for various educational levels. We are interested in exploring whether educational decision-makers designed online education optimally, based on surveys from students. It's significant to understand the effectiveness of online education in fulfilling students' needs and what next steps education institutions should take to ensure that students can reach their potential. An important aspect of academic learning is adaptability, and we were intrigued that the researchers used machine learning to measure the adaptability of the students surveyed.
+
+#### Data Collection
+
+The data set we used is from a research study conducted by the Daffodil International University[^1], one of the largest universities in Bangladesh. They collected this data via a survey they released from December 10, 2020, until February 5, 2021. Student information was gathered from various educational levels including universities, schools, and colleges. Each student who was surveyed represents one observation; a total of 1,205 observations are included in this dataset and none were omitted from the final dataset. We believe this is because the dataset may have already been used for other research studies done by the university, and thus it was cleaned before it was released publicly.
+
+[^1]: Suzan, Md. Mahmudul & Samrin, Nishat & Biswas, Al Amin & Pramanik, Md. (2021). Students' Adaptability Level Prediction in Online Education using Machine Learning Approaches. 1-7. 10.1109/ICCCNT51525.2021.9579741.
+
+The original dataset had 14 variables - sex, age, education level, institution type, IT student, location, load shedding, financial condition, internet type, network type, class duration, self-LMS, device, and adaptivity level.
+
+#### Data Wrangling
+
+Our outcome variable is `adaptivity_level`. It is an ordinal categorical variable with three levels: low, moderate, and high. Based on our exploratory data analysis, we noticed there were very few High levels and thus we decided to merge this data with the Moderate level. In order to interpret the coefficients of the logistic regression models with more simplicity, we dichotomized the outcome variable into a factored variable with Low versus Not Low adaptivity levels.
+
+The variables of interest in our study were `sex` (male or female), `age` (six ranges; 1-5, 6-10, 11-15, 16-20, 21-25, 26-30), `education_level` (school, college, university), `institution_type` (government, non-government), `financial_condition` (poor, mid, rich), `internet_type` (mobile data, WiFi), `network_type` (3G, 4G), and `class_duration` (0, 1-3, 3-6).
+
+We factored the `age` variable into six categories: 1-5, 6-10, 11-15, 16-20, 21-25, and 26-30, which covers all levels of education from elementary school to university. We renamed the gender variable to `sex` assigned at birth and changed “Girl” to “Female” and “Boy” to “Male” to provide more inclusive language in the analysis. All other variables were kept in their original format. Moreover, we renamed each of the columns to lowercase letters with snake case for easier coding. For our exploratory data analysis and predictive models, we removed all columns that we did not want to include in our analysis, such as `load_shedding`, `it_student`, and `location`. The original dataset did not provide a variable codebook, therefore we had to exclude variables that were unclear. Refer to the codebook for a more detailed description of each variable in the dataset.
+
+## Research Questions and Hypotheses
+
+Our two main research questions are:
+
+1.  Which predictor variables are the most important for predicting the adaptability level of students in Bangladesh?
+
+2.  Which model is better at predicting adaptivity levels: Logistic regression or Random forest?
+
+**Hypothesis**
+
+1.  We believe that `age`, `sex`, and `financial_condition` will be the most important variables for predicting adaptivity level. More specifically, we hypothesized that older female students with higher socioeconomic status would have higher adaptive capacities.
+
+2.  We believe the random forest will be better at predicitng adaptivity levels because of its flexible nature.
+
+## Methodology
+
+#### Visualizations
+
+```{r import-dataset}
+#| message: false
+data <- read_csv(here("data/finaldata.csv"), show_col_types = FALSE)
+# get rid of the first column 
+data <- data[, -1]
+```
+
+```{r data-wrangling}
+# dichotomize the outcome variable by converting the three levels of
+# Low, Moderate, and High to Low versus Not Low (0 versus 1)
+data$outcome=ifelse(data$outcome=="1",1, 2)
+```
+
+```{r table-of-summary-stats, echo=FALSE}
+#| message: false
+#| include: false
+
+# summary table of specific variables of interest
+sumtable(data, vars = c("gender", "age", "financial_condition", "adaptivity_level"),
+         out = 'return')
+```
+
+```{r visualization-of-adaptivity-level}
+#| echo: false
+#| fig-align: "center"
+#| fig.alt: "This graph shows the proportions of students with low, moderate, and high adaptivity levels, colored and categorized by sex and age, respectively."
+
+# re-factored variables
+level_order <- c("Low", "Moderate", "High")
+data$adaptivity_level <- factor(data$adaptivity_level, levels = level_order)
+age_order <- c("1-5", "6-10", "11-15", "16-20", "21-25", "26-30")
+data$age <- factor(data$age, levels = age_order)
+
+# plot for all adaptivity levels
+ggplot(data)+ 
+  geom_bar(aes(x = age, fill = sex), 
+           position = "dodge") + 
+  facet_wrap(~adaptivity_level) +
+  ylab("Number of Students") +
+  xlab("Age (Years)") +
+  ggtitle("Bar Graph of Proportions of Adaptivity Levels on Age and Sex") +
+  theme_bw()
+```
+
+This graph shows the proportions of students with low, moderate, and high adaptivity levels, colored and categorized by sex and age, respectively. For low adaptivity levels, ages 1-5 and 26-30 had the largest gender gaps in adaptivity level. There were no students ages 1-5 that had a high adaptivity level. A great amount of students had a moderate adaptivity level. Across all adaptivity levels, the majority of the students in the dataset were between ages 11-25.
+
+```{r counts-for-adaptivity-level-and-financial-condition}
+# counts of observations for different groupings of financial conditions and adaptivity levels
+
+counts <- data %>%
+  count(adaptivity_level, financial_condition) %>%
+  group_by(adaptivity_level) %>%
+  mutate(percentage = n / sum(n) * 100)
+```
+
+```{r final-pie-chart}
+#| echo: false
+#| message: false
+#| error: false
+#| fig-align: "center"
+#| fig.alt: "This graph shows the distribution of financial conditions across adaptivity levels"
+
+# proportions for each adaptivity level
+proportions_high <- c(22, 36, 42)
+proportions_moderate <- c(14.56, 80.16, 5.28)
+proportions_low <- c(26.875, 71.041667, 2.083333)
+
+
+# labels for each category
+labels <- c("Poor", "Mid", "Rich")
+
+
+# create data frames for each adaptivity level
+data_high <- data.frame(category = labels, proportion = proportions_high)
+data_moderate <- data.frame(category = labels, proportion = proportions_moderate)
+data_low <- data.frame(category = labels, proportion = proportions_low)
+
+
+# create pie chart for high adaptivity level
+high <- ggplot(data_high, aes(x = "", y = proportion, fill = category)) +
+  geom_bar(stat = "identity") +
+  coord_polar("y", start = 0) +
+  labs(title = "High Adaptivity Level") +
+  scale_fill_viridis_d() +
+  theme_void()
+
+# create pie chart for moderate adaptivity level
+moderate <- ggplot(data_moderate, aes(x = "", y = proportion, fill = category)) +
+  geom_bar(stat = "identity") +
+  coord_polar("y", start = 0) +
+  labs(title = "Moderate Adaptivity Level") +
+  scale_fill_viridis_d() +
+  theme_void()
+
+# create pie chart for low adaptivity level
+low <- ggplot(data_low, aes(x = "", y = proportion, fill = category)) +
+  geom_bar(stat = "identity") +
+  coord_polar("y", start = 0) +
+  labs(title = "Low Adaptivity Level") +
+  scale_fill_viridis_d() +
+  theme_void()
+
+
+# combine pie charts into a single plot
+combined_pie_charts <- grid.arrange(high, moderate, low, nrow = 1) 
+
+# print the combined plot
+grid.draw(combined_pie_charts)
+
+# add title
+grid.text("Financial Condition Breakdown by Adaptivity Level", x = .5, y = 0.80, gp = gpar(fontsize = 16))
+```
+
+This graph shows the distribution of financial conditions across adaptivity levels of the observations. Keep in mind that in this data, the majority of respondents to the survey are middle class. Interestingly, there are very low proportions of rich respondents in the low and moderate adaptivity categories, but in the high adaptivity category, the rich financial condition is nearly half of the total (42%).
+
+#### Rationale for Machine Learning Models
+
+For this analysis, we used random forest classification and logistic regression as our predictive models on the dataset. Classification is an area of supervised machine learning that tries to predict which class or category some entity belongs to, based on predictor variables.
+
+The rationale behind choosing a random forest is its ability to use multiple trees, thus lessening the variation compared to a single tree. The random forest is more complex, since each tree is trained on a random subset of the data. These individual predictions are then used to yield a more robust and accurate prediction. Additionally, random forests carve up feature space and they have many diverging variables, making a tree a potentially better option than a linear function because of its inherent flexibility.
+
+Due to the nature of our outcome as a categorical variable, we decided to use a logistic regression for binary classification as well. This logistic regression model is trying to predict whether a student’s adaptivity level is low or not low, based on the following given factors of the student: `sex`, `age`, `education_level`, `institution_type`, `financial_condition`, `internet_type`, `network_type`, `class_duration`. We were more interested in estimating probabilities of our observations belonging to either category of adaptivity level since it is more valuable to have an estimate of probability that a student had a low adaptivity level based on characteristics of their environment and circumstances, than a discrete classification of low adaptivity level or not.
+
+#### Methods of Analysis
+
+In order to build predictive models using random forest and logistic regression, we set up a transformer, made a train-test validation split, and created and fit pipelines. The same split was used on each model to ensure the models were being trained and tested on the same unseen data. For the random forest, we analyzed variable importance and for logistic regression, we analyzed prediction probabilities. The accuracy of the random forest and logistic regression models were measured and compared with an ROC curve.
+
+## Results
+
+```{python create-train-test-split-rf}
+#| message: false
+
+# convert data from R to Python
+data = r.data
+data = data.drop(data.columns[[13, 15, 16]], axis=1)
+
+
+delete_list = ["it_student", "location", "load_shedding", "device", "outcome", "self_lms"]
+X = data.drop(delete_list, axis = 1)
+
+
+# create a 1D array with "outcome"
+y = data.outcome
+
+
+# create train-test split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = 0.25, random_state = 20)
+```
+
+## Random Forest Classifier
+
+```{python create-pipeline-rf}
+#| message: false
+
+# pipeline function 
+def make_pipeline(transformer, estimator):
+  pipeline = Pipeline(
+    [
+      ("preprocessor", transformer),
+      ("estimator", estimator)
+    ]
+  )
+  return pipeline
+```
+
+```{python preprocessor-rf}
+#| message: false
+#| include: false
+
+# define columns for OneHotEncoding
+categorical_columns = ['age',
+                      'sex',
+                      'education_level', 
+                      'institution_type', 
+                      'financial_condition', 
+                      'internet_type', 
+                      'network_type', 
+                      'class_duration']
+
+
+preprocessor = make_column_transformer(
+  (OneHotEncoder(
+    drop="if_binary"
+    ),
+  categorical_columns
+  ), 
+  remainder="passthrough",
+  verbose_feature_names_out=False,  # avoid prepending preprocessor names
+)
+
+
+# creating KFold object with 5 splits
+cv = KFold(n_splits = 5)
+
+
+# establish random forest classifier pipeline
+pipeline_rf = make_pipeline(preprocessor, RandomForestClassifier(random_state = 0))
+
+
+# create grid for gridsearch
+param_grid_rf = dict(
+  estimator__n_estimators = np.arange(300, 501, 50),
+  estimator__max_features = np.arange(1, 6)
+)
+
+
+grid_rf = (
+  GridSearchCV(
+    pipeline_rf,
+    param_grid = param_grid_rf,
+    cv = cv,
+    scoring = 'neg_mean_squared_error')
+  .fit(X_train, y_train)
+)
+
+
+# code to print out the best parameters
+grid_rf.best_params_
+```
+
+```{python best-score-rf}
+#| echo: false
+#| include: false
+
+# code to print out the best score
+grid_rf.best_score_
+```
+
+The best parameters are {'estimator\_\_max_features': 2, 'estimator\_\_n_estimators': 300} with a best score of -0.134.
+
+This means there are 300 trees in this Random Forest and the maximum number of features splitting at each node is two. The best score is low, indicating better predictive accuracy and fit to this dataset.
+
+#### Variable Importance Plot
+
+```{python rf-plot}
+#| echo: false
+#| fig-align: "center"
+#| fig.alt: "This plot shows the most important variables in predicting student adaptivity levels."
+
+# save best estimator as new variable
+best_rf = grid_rf.best_estimator_
+
+# extract the feature importances
+importances = best_rf['estimator'].feature_importances_
+
+
+# turn these importances into a dataframe
+importances = pd.DataFrame(
+  importances, 
+  columns = ["Variable Importance"])
+
+
+# add the feature names as a new column
+importances['Features'] = best_rf['preprocessor'].get_feature_names_out()
+
+
+# plot 
+fig, ax = plt.subplots()
+sns.barplot(
+  x = "Variable Importance" ,
+  y = "Features", 
+  data = importances,
+  ax = ax)
+  
+ax.set(
+  title = "Variable Importance Plot for Explaining Class Evaluation Ratings"
+)
+plt.tight_layout()
+fig.subplots_adjust(left=0.25)
+plt.show()
+```
+
+This variable importance plot show that the following variables have the greatest predictive abilities of student adaptivity levels: sex (0.13), institution type (.135), internet type (0.9), and class duration (0.125).
+
+```{python predicted-probabilities}
+#| echo: false
+#| message: false
+#| include: false
+
+# False Positive Rate (FPR), True Positive Rate (TPR), and thresholds for a Receiver Operating Characteristic (ROC) curve based on predicted probabilities from a random forest model
+
+y_pred_prob = grid_rf.predict_proba(X_test)[:,1]
+
+
+fpr, tpr, thresholds = roc_curve(y_test, y_pred_prob, pos_label = 2.0)
+pd.DataFrame({
+  'FPR': fpr,
+  'TPR': tpr,
+  'Thresholds': thresholds
+})
+```
+
+#### ROC Curve
+
+```{python roc-vals-random-forest}
+#| echo: false
+#| error: false
+#| fig.alt: "This is the ROC curve for the random forest classifier."
+
+
+RocCurveDisplay.from_estimator(grid_rf, X_test, y_test); 
+plt.show()
+```
+
+This plot shows validation-set ROC curve for the Random Forest model using certain predictors. The curve is very close to the top-left corner, with an AUC of 0.94 reported in the lower right corner, indicating great fit. Thus, the random forest shows a strong predictive ability of student adaptivity level.
+
+## Logistic Regression Model
+
+```{r data-wrangling-log}
+#| message: false
+
+# dichotomize the outcome variable by converting the three levels of
+# Low, Moderate, and High to Low versus Not Low (1 versus 2)
+
+
+data = py$data
+data$outcome=ifelse(data$outcome=="1","Low", "Not Low")
+data$outcome=factor(data$outcome, 
+                    levels = c("Low", "Not Low"))
+```
+
+```{python create-train-test-split-log}
+#| message: false
+
+
+# convert data from R to Python
+data = r.data
+
+
+delete_list = ["it_student", "location", "load_shedding", "device", "outcome", "self_lms"]
+X = data.drop(delete_list, axis = 1)
+
+
+# create a 1D array with "outcome"
+y = data.outcome
+
+
+# create train-test split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size = 0.25, random_state = 20)
+```
+
+```{python setup-preprocessor-log}
+#| message: false
+
+
+# defined categorical columns for preprocessor
+categorical_columns = ['sex', 
+                       'age', 
+                       'education_level', 
+                       'institution_type', 
+                       'financial_condition', 
+                       'internet_type', 
+                       'network_type', 
+                       'class_duration']
+
+
+preprocessor = make_column_transformer(
+  (OneHotEncoder(
+    drop = "first"
+    ), 
+  categorical_columns
+  ),
+  remainder="passthrough",
+  verbose_feature_names_out=False,  # avoid perpending preprocessor names
+)
+```
+
+```{python fit-pipeline-log}
+#| message: false
+
+
+# logistic regression pipeline 
+pipeline_log_full = Pipeline(
+  [
+    ('preprocess', preprocessor), 
+    ('estimator', LogisticRegression(penalty = None, max_iter = 1000))
+  ]
+).fit(X_train, y_train)
+```
+
+```{python predict-xval}
+#| echo: false
+#| message: false
+#| include: false
+
+# left means the probability 
+pipeline_log_full.predict_proba(X_test).round(2)
+```
+
+```{python roc-vals}
+#| echo: false
+#| message: false
+#| include: false
+
+# False Positive Rate (FPR), True Positive Rate (TPR), and thresholds for a Receiver Operating Characteristic (ROC) curve based on predicted probabilities from a logistic regression model
+y_pred_prob = pipeline_log_full.predict_proba(X_test)[:,1]
+
+
+fpr, tpr, thresholds = roc_curve(y_test, y_pred_prob, pos_label = "Not Low")
+pd.DataFrame({
+  'FPR': fpr,
+  'TPR': tpr,
+  'Thresholds': thresholds
+})
+```
+
+#### ROC Curve
+
+```{python roc-curve-est-code}
+#| echo: false
+#| error: false
+#| fig-align: center
+#| fig-alt: "This is an ROC curve for a logistic regression model"
+
+
+RocCurveDisplay.from_estimator(pipeline_log_full, X_test, y_test); 
+plt.show()
+```
+
+This plot shows validation-set ROC curve for the Logistic Regression model using certain predictors. The curve is pretty close to the top-left corner, with an AUC of 0.77 reported in the lower right corner, indicating decent fit. Thus, the logistic regression shows an adequate predictive ability of student adaptivity level.
+
+```{python auc-log-reg}
+#| include: false
+# logistic regression AUC 
+roc_auc_score(y_test, y_pred_prob)
+```
+
+```{python coefs}
+# find intercept and coefficients
+intercept = pipeline_log_full['estimator'].intercept_
+coefs = pipeline_log_full['estimator'].coef_
+```
+
+The coefficients for each of the predictor variables were:
+
+```{python coefs-log-regression}
+# coefficients
+p = pipeline_log_full['estimator']
+
+variables = pipeline_log_full['preprocess'].get_feature_names_out()
+
+# assign the coefficients to a list coef
+coef = p.coef_
+
+df = pd.DataFrame({
+  "Variables": pipeline_log_full["preprocess"].get_feature_names_out().tolist(),
+  "Coefficients": p.coef_.ravel()
+})
+
+# print dataframe of coefs
+print(df.to_markdown(index=False))
+```
+
+#### Improved Logistic Regression AUC Score
+
+We decided to create interactions between each of the variables and refit the model on this, in hopes of it predicting better on the unseen data. We used the PolynomialFeatures transformer in our preprocessor.
+
+```{python fit-pipeline-log-interactions}
+# logistic regression pipeline 
+pipeline_log_full = Pipeline(
+  [
+    ('preprocess', preprocessor), 
+    ('poly', PolynomialFeatures(interaction_only = True, degree = 2)),
+    ('estimator', LogisticRegression(penalty = None, max_iter = 100000000))
+  ]
+).fit(X_train, y_train)
+```
+
+```{python predict-xval-interactions}
+#| echo: false
+#| include: false
+#| message: false
+
+# left means the probability 
+pipeline_log_full.predict_proba(X_test).round(2)
+```
+
+```{python roc-vals-interactions}
+#| echo: false
+#| message: false
+#| include: false
+
+# False Positive Rate (FPR), True Positive Rate (TPR), and thresholds for a Receiver Operating Characteristic (ROC) curve based on predicted probabilities from a logistic regression model
+y_pred_prob = pipeline_log_full.predict_proba(X_test)[:,1]
+
+
+fpr, tpr, thresholds = roc_curve(y_test, y_pred_prob, pos_label = "Not Low")
+pd.DataFrame({
+  'FPR': fpr,
+  'TPR': tpr,
+  'Thresholds': thresholds
+})
+```
+
+```{python auc-log-reg-interactions}
+#| include: false
+# logistic regression AUC 
+roc_auc_score(y_test, y_pred_prob)
+```
+
+```{python roc-curve-est-code-interactions}
+#| fig-align: center
+#| message: false
+#| fig-alt: "Plot of improved AUC score of logistic regression, with interactions."
+
+
+RocCurveDisplay.from_estimator(pipeline_log_full, X_test, y_test);
+plt.show()
+```
+
+This plot shows validation-set ROC curve for the improved Logistic Regression model using certain predictors and bivariate interactions. The curve is closer to the top-left corner, with an AUC of 0.89 reported in the lower right corner, indicating good fit. Thus, the logistic regression with interaction terms shows a better predictive ability of student adaptivity level than without interactions.
+
+```{python coefs-interactions}
+
+# coefficients
+p = pipeline_log_full['estimator']
+
+# Assign the coefficients to a list coef
+coef = p.coef_
+
+# dataframe of 137 interactions
+interaction_df = pd.DataFrame({
+  "variables": pipeline_log_full["poly"].get_feature_names_out().tolist(),
+  "coefficients": p.coef_.ravel()
+})
+```
+
+There were 137 bivariate interaction terms. These coefficients have a greater range of values than those found in the initial logistic regression.
+
+## Discussion
+
+#### Conclusion
+
+The variable importance plot suggests a strong association between the most important variables and adaptivity level. Based on the plot we fitted, `sex`, `institution_type`, `internet_type`, and `class_duration` were the best at predicting student adaptivity level. There are some reasons for why we believe certain variables had greater predictive abilities than others. Sex may influence adaptivity levels through gender-specific socialization patterns. Institution type and internet access may reflect varying levels of resources and support available to students, impacting their adaptability. Lastly, class duration could affect adaptivity by shaping students' learning experiences and engagement levels over time.
+
+After comparing the AUC scores of the ROC curves for each model, we concluded that the random forest model had the most accurate prediction of adaptivity level, even after improving our logistic regression model. The AUC score for random forest was 0.94 and for logistic regression was 0.77 and then 0.89 with variable interactions. Scores closer to 1 indicate better performances. We believe the random forest was so successful at predicting adaptivity levels because our variables were entirely categorical and therefore the feature space was already split into boxes. For the logistic regression model, the model was trying to form linear relationships between the variables, which were the the changes in the probabilities of having a certain outcome. We think the reason the model was not as effective, even with interaction terms, was because the correlation between these variable was not linear and the logistic regression was unable to handle these relationships. Additionally, a random forest is inherently creating interactions between each of the predictors, thus making it the most flexible model. While we were able to improve the AUC score of the logistic regression by drastically increasing the feature space from 15 coefficients to 137 coefficients, the Random Forest was still the best.
+
+#### Analysis Flaws
+
+To have consistency in our models, we fit both models on the same training data evaluated both on the same test data, and assessed each of the models’ accuracies using an ROC curve. We removed certain variables to avoid overfitting. However, it is important to note that correctly predicting one outcome may mean we don’t correctly predict the other outcome. Hence, our high percentage of prediction accuracy for having a “Not Low” adaptivity level is not always the best method, since we could theoretically predict that all observations were “Not Low” and get a 100% accuracy. This issue could have been a cause of our logistic regression model having a lower AUC score.
+
+Additionally, by creating 137 bivariate interactions in our improved logistic regression model, this made it very difficult to interpret each coefficient.
+
+#### Ethical Concerns
+
+This research yields insights into some determinants shaping students' adaptability within their learning environment. It's crucial to be cautious in creating broad conclusions and to recognize the ethical considerations involved. Nevertheless, these findings offer a pathway to address challenges encountered by students in Bangladesh, guiding the development of targeted interventions and support strategies. Some risks to this research are potential oversimplification of complex factors, inadvertent reinforcement of stereotypes, and unintentional marginalization of certain communities. Thus, there needs to be more research validating these findings, and it is imperative to ensure the responsible application of these findings in educational practices.
+
+#### Future Improvements
+
+In a future analysis, it would be interesting to create more interaction terms, by increasing the degrees of the existing variables. More polynomial degrees correspond to more parameters which could fit the data better and have a higher likelihood. More interactions do mean a higher risk of overfitting, though. Thus, the goal is to find a polynomial that fits the data the best, knowing that the correlation between predictors is not linear. While our AUC score was very high for our random forest, we believe this was influenced by how broad the categories were for adaptivity level. While an outcome with more levels would likely make it more difficult for the model to predict accurately, it would be a better representation of the true student adaptivity levels. Moreover, this dataset was specific to Bangladesh and it would be important to include more data from various countries and/or a more diverse survey group. This way we would be able to use new variables, such as race and ethnicity, that may also impact students' adaptability levels.
